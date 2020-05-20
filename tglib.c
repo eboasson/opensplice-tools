@@ -85,7 +85,8 @@ enum tgkind {
   TG_ARRAY,
   TG_STRUCT,
   TG_UNION,
-  TG_TYPEDEF
+  TG_TYPEDEF,
+  TG_PREDECL
 };
 
 struct tgtype {
@@ -210,6 +211,7 @@ static const char *typekindstr(DDS_TypeElementKind kind)
     case DDS_TYPE_ELEMENT_KIND_DOUBLE: return "double";
     case DDS_TYPE_ELEMENT_KIND_TIME: return "time";
     case DDS_TYPE_ELEMENT_KIND_UNIONLABELDEFAULT: return "unionlabeldefault";
+    case DDS_TYPE_ELEMENT_KIND_FORWARDDECLARATION: return "forwarddeclaration";
   }
   return NULL;
 }
@@ -231,6 +233,7 @@ const char *tgkindstr(enum tgkind kind)
     case TG_STRUCT: return "struct";
     case TG_UNION: return "union";
     case TG_TYPEDEF: return "typedef";
+    case TG_PREDECL: return "predecl";
   }
   return "?";
 }
@@ -248,26 +251,26 @@ static char *fullname(struct parse_arg *arg, const char *name)
   }
 }
 
-static struct tgtype *lookupname1(struct dictnode *dict, const char *name)
+static struct dictnode *lookupdictnode1(struct dictnode *dict, const char *name)
 {
   struct dictnode *n = dict;
   while (n && strcmp(n->name, name) != 0)
     n = n->next;
-  return n ? n->type : NULL;
+  return n;
 }
 
-static struct tgtype *lookupname(struct parse_arg *arg, const char *name)
+static struct dictnode *lookupdictnode(struct parse_arg *arg, const char *name)
 {
   if (strncmp(name, "::", 2) == 0)
-    return lookupname1(arg->context->dict, name);
+    return lookupdictnode1(arg->context->dict, name);
   else
   {
     char *prefix = strdup(arg->context->nameprefix);
     size_t sz = strlen(prefix) + 2 + strlen(name) + 1;
     char *tmp = malloc(sz);
-    struct tgtype *t;
+    struct dictnode *n;
     (void) snprintf(tmp, sz, "%s::%s", prefix, name);
-    while((t = lookupname1(arg->context->dict, tmp)) == NULL && *prefix)
+    while((n = lookupdictnode1(arg->context->dict, tmp)) == NULL && *prefix)
     {
       char *x = strrchr(prefix, ':');
       assert(x > prefix && x[-1] == ':');
@@ -276,22 +279,39 @@ static struct tgtype *lookupname(struct parse_arg *arg, const char *name)
     }
     free(prefix);
     free(tmp);
-    return t;
+    return n;
   }
+}
+
+static struct tgtype *lookupname(struct parse_arg *arg, const char *name)
+{
+  struct dictnode *n;
+  if ((n = lookupdictnode (arg, name)) == NULL)
+    return NULL;
+  return n->type;
 }
 
 static void addtodict(struct parse_arg *arg, const char *name, struct tgtype *t)
 {
   if (name)
   {
-    struct dictnode *n;
     assert(t->name == NULL);
-    t->name = strdup(name);
-    n = malloc(sizeof(*n));
-    n->name = fullname(arg, name);
-    n->type = t;
-    n->next = arg->context->dict;
-    arg->context->dict = n;
+    struct dictnode *n = lookupdictnode (arg, name);
+    if (n == NULL)
+    {
+      t->name = strdup(name);
+      n = malloc(sizeof(*n));
+      n->name = fullname(arg, name);
+      n->type = t;
+      n->next = arg->context->dict;
+      arg->context->dict = n;
+    }
+    else
+    {
+      assert (n->type->kind == TG_PREDECL);
+      *n->type = *t;
+      // leak
+    }
   }
 }
 
@@ -540,16 +560,25 @@ static DDS_boolean parse_type_cb(DDS_TypeElementKind kind, const DDS_string name
       assert(arg->type);
       break;
 
-    case DDS_TYPE_ELEMENT_KIND_STRUCT:
-    {
-      struct tgtype *t = newtgtype(TG_STRUCT, 0, 0);
-      struct parse_arg subarg = { .context = arg->context, .type = t };
-      (void) DDS_TypeSupport_walk_type_description(handle, parse_struct_cb, &subarg);
-      t->size = alignup(t->size, t->align);
-      if (name) addtodict(arg, name, t);
-      arg->type = t;
+    case DDS_TYPE_ELEMENT_KIND_FORWARDDECLARATION:
+      if (!lookupname (arg, name))
+      {
+        struct tgtype *t;
+        t = newtgtype (TG_PREDECL, 1, 1);
+        addtodict(arg, name, t);
+      }
       break;
-    }
+
+    case DDS_TYPE_ELEMENT_KIND_STRUCT:
+      {
+        struct tgtype *t = newtgtype(TG_STRUCT, 0, 0);
+        struct parse_arg subarg = { .context = arg->context, .type = t };
+        (void) DDS_TypeSupport_walk_type_description(handle, parse_struct_cb, &subarg);
+        t->size = alignup(t->size, t->align);
+        if (name) addtodict(arg, name, t);
+        arg->type = t;
+        break;
+      }
 
     case DDS_TYPE_ELEMENT_KIND_UNION:
     {
@@ -956,6 +985,9 @@ static int tgprint1(struct tgstring *s, const struct tgtype *t, const char *data
   const char *commaspace = (mode == TGPM_DENSE) ? "," : ", ";
 
   switch (t->kind) {
+    case TG_PREDECL:
+      abort ();
+
     case TG_BOOLEAN:
       return tgprintf(s, "%s", *data ? "true" : "false");
 
@@ -1173,6 +1205,9 @@ int tgprintkey(struct tgstring *s, const struct tgtopic *tp, const void *keydata
 static void tgfreedata1(const struct tgtype *t, char *data)
 {
   switch(t->kind) {
+    case TG_PREDECL:
+      abort ();
+
     case TG_BOOLEAN:
     case TG_CHAR:
     case TG_INT:
@@ -1664,6 +1699,9 @@ static int tgscan1(char *dst, const struct tgtype *t, struct lexer *l)
   t = detypedef(t);
   tk = scantoken(&tok, l);
   switch(t->kind) {
+    case TG_PREDECL:
+      abort ();
+
     case TG_BOOLEAN:
       if (!lookupenum(&v, &tok, l, &boolean_as_enum))
         return 0;

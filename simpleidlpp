@@ -399,7 +399,10 @@ sub parse_array_dim {
 sub parse_int_or_constname {
   my ($tok, $val) = next_token ();
   if ($tok eq "INT") { return ($tok, $val); }
-  elsif ($tok eq "IDENT") {
+  if ($tok eq "::") {
+    ($tok, $val) = next_token ();
+  }
+  if ($tok eq "IDENT") {
     my $name = $val;
     while (peek_token () eq "::") {
       next_token ();
@@ -572,6 +575,7 @@ sub next_token_1 {
     if ($input_at_bol) {
       if ($input =~ /^\h*#\h+([0-9]+.*)/) { advance (); process_line_directive ($1); next; }
       elsif ($input =~ /^\h*#\h*pragma\h+keylist\h+(.*)/) { advance (); return ("KEYLIST", $1) }
+      elsif ($input =~ /^\h*#\h*pragma\h+.*?(\R|$)/) { advance (); next; }
     }
 
     if ($input =~ /^$/) { return ("EOF", undef); }
