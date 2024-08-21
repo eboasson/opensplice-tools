@@ -420,6 +420,15 @@ static DDS_boolean parse_unioncase_cb(DDS_TypeElementKind kind, const DDS_string
                   break;
               assert(j < tu->dtype->u.e.n);
               tu->labs[tu->nlab].val = (uint64_t) tu->dtype->u.e.ms[j].v;
+            } else if(tu->dtype->kind == TG_BOOLEAN) {
+              if(strcmp(a->value._u.svalue, "False") == 0)
+                tu->labs[tu->nlab].val = 0;
+              else if(strcmp(a->value._u.svalue, "True") == 0)
+                tu->labs[tu->nlab].val = 1;
+              else
+                assert(0);
+            } else if(tu->dtype->kind == TG_CHAR) {
+              tu->labs[tu->nlab].val = (unsigned char) a->value._u.svalue[0];
             } else {
               assert(tu->dtype->kind == TG_INT || tu->dtype->kind == TG_UINT);
               tu->labs[tu->nlab].val = strtoull(a->value._u.svalue, NULL, 10);
