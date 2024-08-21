@@ -152,6 +152,11 @@ else
   IDLPPFLAGS += -I$(OSPL_HOME)/etc/idl -DINCLUDE_DDS_DCPS
 endif
 
+HAVE_FORWARDDECLARATION := $(shell echo '\#include "dds_dcps.h"' | $(CC) $(CPPFLAGS) -E -x c - | grep DDS_TYPE_ELEMENT_KIND_FORWARDDECLARATION)
+ifneq "$(HAVE_FORWARDDECLARATION)" ""
+  CPPFLAGS += -DHAVE_FORWARDDECLARATION
+endif
+
 IDLPP := $(shell which idlpp$X)
 
 ECHO_PREFIX=@

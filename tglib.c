@@ -211,7 +211,9 @@ static const char *typekindstr(DDS_TypeElementKind kind)
     case DDS_TYPE_ELEMENT_KIND_DOUBLE: return "double";
     case DDS_TYPE_ELEMENT_KIND_TIME: return "time";
     case DDS_TYPE_ELEMENT_KIND_UNIONLABELDEFAULT: return "unionlabeldefault";
+#if HAVE_FORWARDDECLARATION
     case DDS_TYPE_ELEMENT_KIND_FORWARDDECLARATION: return "forwarddeclaration";
+#endif
   }
   return NULL;
 }
@@ -568,7 +570,7 @@ static DDS_boolean parse_type_cb(DDS_TypeElementKind kind, const DDS_string name
       arg->type = lookupname(arg, name);
       assert(arg->type);
       break;
-
+#if HAVE_FORWARDDECLARATION
     case DDS_TYPE_ELEMENT_KIND_FORWARDDECLARATION:
       if (!lookupname (arg, name))
       {
@@ -577,7 +579,7 @@ static DDS_boolean parse_type_cb(DDS_TypeElementKind kind, const DDS_string name
         addtodict(arg, name, t);
       }
       break;
-
+#endif
     case DDS_TYPE_ELEMENT_KIND_STRUCT:
       {
         struct tgtype *t = newtgtype(TG_STRUCT, 0, 0);
